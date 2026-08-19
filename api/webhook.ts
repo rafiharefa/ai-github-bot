@@ -1,4 +1,4 @@
-import { Webhooks, createNodeMiddleware } from "@octokit/webhooks";
+import { Webhooks } from "@octokit/webhooks";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import http from "node:http";
 import { getBotConfig } from "../src/config.js";
@@ -33,20 +33,29 @@ function getGeminiService(): GeminiService {
   return _geminiService;
 }
 
-// 1. Handle issue opened with label 'ai' or 'ai-task'
+// 1. Handle issue opened with label 'ai' or 'ai-task' or bot mention
 webhooks.on("issues.opened", async ({ payload }) => {
   const issue = payload.issue;
   const repository = payload.repository;
   const installation = payload.installation;
 
-  if (!installation) return;
+  console.log(`[Event] issues.opened on ${repository.full_name} #${issue.number}: "${issue.title}"`);
+
+  if (!installation) {
+    console.warn("[Warn] No installation found on payload.");
+    return;
+  }
 
   const hasAiLabel = (issue.labels || []).some(
     (l) => typeof l === "object" && (l.name === "ai" || l.name === "ai-task" || l.name === "ai-developer")
   );
-  const mentionsBot = issue.body?.includes(config.botTriggerName) || issue.title.startsWith("[AI]");
+  const mentionsBot =
+    issue.body?.includes(config.botTriggerName) ||
+    issue.title.startsWith("[AI]") ||
+    issue.title.toLowerCase().includes("[ai]");
 
   if (!hasAiLabel && !mentionsBot) {
+    console.log("[Info] Issue did not match AI trigger conditions.");
     return;
   }
 
@@ -67,10 +76,13 @@ webhooks.on("issue_comment.created", async ({ payload }) => {
   const repository = payload.repository;
   const installation = payload.installation;
 
+  console.log(`[Event] issue_comment.created on ${repository.full_name} #${issue.number}`);
+
   if (comment.user?.type === "Bot" || !installation) return;
 
   const commentBody = comment.body.trim();
   if (!commentBody.includes(config.botTriggerName) && !commentBody.startsWith("/ai")) {
+    console.log("[Info] Comment did not match bot trigger name.");
     return;
   }
 
@@ -82,7 +94,7 @@ webhooks.on("issue_comment.created", async ({ payload }) => {
     repo: repository.name,
     issueNumber: issue.number,
     taskTitle: issue.title,
-    taskBody: `Task instructions from comment: ${prompt}\n\nOriginal Issue Context:\n${issue.body || ""}`,
+    taskBody: `Task instructions: ${prompt}\n\nOriginal Issue Context:\n${issue.body || ""}`,
   });
 });
 
@@ -95,25 +107,28 @@ async function processTask(params: {
   taskBody: string;
 }) {
   const { installationId, owner, repo, issueNumber, taskTitle, taskBody } = params;
-  const githubService = getGitHubService();
-  const geminiService = getGeminiService();
+  console.log(`[Task] Starting AI task on ${owner}/${repo} #${issueNumber}...`);
 
   try {
+    const githubService = getGitHubService();
+    const geminiService = getGeminiService();
     const octokit = await githubService.getInstallationOctokit(installationId);
 
-    // Post processing acknowledgment
+    // Acknowledge receipt
     await githubService.postIssueComment(
       octokit,
       owner,
       repo,
       issueNumber,
-      `🤖 **AI Autonomous Developer** sedang menganalisis arsitektur dan memproses task...\n\n- **Target Branch**: Akan dibuat branch terisolasi baru (aturan: *never develop on existing branch*).\n- **Engine**: Google Gemini 3.7 Flash.`
+      `🤖 **AI Autonomous Developer** sedang menganalisis arsitektur dan memproses task...\n\n- **Target Branch**: Akan dibuat branch terisolasi baru (aturan: *never develop on existing branch*).\n- **Engine**: Google Gemini (${config.geminiModel}).`
     );
 
     // 1. Fetch Repo Context
+    console.log(`[Task] Fetching repository context...`);
     const repoContext = await githubService.getRepositoryContext(octokit, owner, repo);
 
     // 2. Generate Solution via Gemini
+    console.log(`[Task] Generating code changes via Gemini...`);
     const resolution = await geminiService.generateCodeChanges({
       repoName: `${owner}/${repo}`,
       issueTitle: taskTitle,
@@ -123,6 +138,7 @@ async function processTask(params: {
     });
 
     if (!resolution.files || resolution.files.length === 0) {
+      console.log(`[Task] No files generated.`);
       await githubService.postIssueComment(
         octokit,
         owner,
@@ -134,6 +150,7 @@ async function processTask(params: {
     }
 
     // 3. Create Isolated Feature Branch & Open PR
+    console.log(`[Task] Creating branch ${resolution.branchName} and opening PR...`);
     const prResult = await githubService.createFeatureBranchAndPR({
       octokit,
       owner,
@@ -149,6 +166,7 @@ async function processTask(params: {
     });
 
     // 4. Report Success on Issue
+    console.log(`[Task] Successfully opened PR #${prResult.prNumber}`);
     await githubService.postIssueComment(
       octokit,
       owner,
@@ -157,8 +175,9 @@ async function processTask(params: {
       `✅ **Implementasi Selesai!**\n\n- **Branch Baru**: \`${prResult.branchName}\`\n- **Pull Request**: [#${prResult.prNumber} (${resolution.prTitle})](${prResult.prUrl})\n\n**Ringkasan Perubahan:**\n${resolution.summary}\n\n*Silakan review Pull Request. Setelah di-merge ke branch utama, pipeline automated deployment akan berjalan otomatis.*`
     );
   } catch (error: any) {
-    console.error("Error processing AI task:", error);
+    console.error("[Task Error]", error);
     try {
+      const githubService = getGitHubService();
       const octokit = await githubService.getInstallationOctokit(installationId);
       await githubService.postIssueComment(
         octokit,
@@ -167,10 +186,21 @@ async function processTask(params: {
         issueNumber,
         `❌ **Gagal menjalankan otomasi AI:**\n\`\`\`\n${error?.message || error}\n\`\`\``
       );
-    } catch {
-      // Ignore fallback notification error
+    } catch (commentErr) {
+      console.error("[Task Error] Failed to post error comment:", commentErr);
     }
   }
+}
+
+function readBody(req: IncomingMessage): Promise<string> {
+  return new Promise((resolve, reject) => {
+    let data = "";
+    req.on("data", (chunk) => {
+      data += chunk;
+    });
+    req.on("end", () => resolve(data));
+    req.on("error", reject);
+  });
 }
 
 // Vercel Serverless Function entry point
@@ -194,8 +224,38 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     return;
   }
 
-  const middleware = createNodeMiddleware(webhooks, { path: "/api/webhook" });
-  return middleware(req, res);
+  if (req.method !== "POST") {
+    res.statusCode = 405;
+    res.end("Method Not Allowed");
+    return;
+  }
+
+  const id = (req.headers["x-github-delivery"] as string) || "";
+  const name = (req.headers["x-github-event"] as any) || "";
+  const signature = (req.headers["x-hub-signature-256"] as string) || "";
+
+  console.log(`[Webhook Inbound] Event: ${name}, Delivery: ${id}`);
+
+  try {
+    const rawBody = await readBody(req);
+    
+    // Process webhook
+    await webhooks.verifyAndReceive({
+      id,
+      name,
+      signature,
+      payload: rawBody,
+    });
+
+    res.statusCode = 200;
+    res.setHeader("Content-Type", "application/json");
+    res.end(JSON.stringify({ ok: true, event: name, delivery: id }));
+  } catch (error: any) {
+    console.error("[Webhook Verification/Processing Error]", error);
+    res.statusCode = 400;
+    res.setHeader("Content-Type", "application/json");
+    res.end(JSON.stringify({ error: error?.message || "Webhook processing failed" }));
+  }
 }
 
 // Standalone mode for local development
