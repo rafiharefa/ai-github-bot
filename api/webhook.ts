@@ -33,7 +33,7 @@ function getGeminiService(): GeminiService {
   return _geminiService;
 }
 
-// 1. Handle issue opened with label 'ai' or 'ai-task' or bot mention
+// 1. Handle issue opened with label 'ai' or 'ai-task' or bot mention / [AI] title
 webhooks.on("issues.opened", async ({ payload }) => {
   const issue = payload.issue;
   const repository = payload.repository;
@@ -41,16 +41,14 @@ webhooks.on("issues.opened", async ({ payload }) => {
 
   console.log(`[Event] issues.opened on ${repository.full_name} #${issue.number}: "${issue.title}"`);
 
-  if (!installation) {
-    console.warn("[Warn] No installation found on payload.");
-    return;
-  }
+  if (!installation) return;
 
   const hasAiLabel = (issue.labels || []).some(
     (l) => typeof l === "object" && (l.name === "ai" || l.name === "ai-task" || l.name === "ai-developer")
   );
   const mentionsBot =
     issue.body?.includes(config.botTriggerName) ||
+    issue.body?.includes("/ai") ||
     issue.title.startsWith("[AI]") ||
     issue.title.toLowerCase().includes("[ai]");
 
@@ -59,17 +57,18 @@ webhooks.on("issues.opened", async ({ payload }) => {
     return;
   }
 
-  await processTask({
+  await processConversationalFlow({
     installationId: installation.id,
     owner: repository.owner.login,
     repo: repository.name,
     issueNumber: issue.number,
-    taskTitle: issue.title,
-    taskBody: issue.body || "",
+    issueTitle: issue.title,
+    initialBody: issue.body || "",
+    isPullRequest: Boolean(issue.pull_request),
   });
 });
 
-// 2. Handle issue comments mentioning the bot (e.g., "@rafiharefa-bot develop ...")
+// 2. Handle issue comments & PR comments
 webhooks.on("issue_comment.created", async ({ payload }) => {
   const comment = payload.comment;
   const issue = payload.issue;
@@ -81,101 +80,176 @@ webhooks.on("issue_comment.created", async ({ payload }) => {
   if (comment.user?.type === "Bot" || !installation) return;
 
   const commentBody = comment.body.trim();
-  if (!commentBody.includes(config.botTriggerName) && !commentBody.startsWith("/ai")) {
-    console.log("[Info] Comment did not match bot trigger name.");
+  const isTriggered =
+    commentBody.includes(config.botTriggerName) ||
+    commentBody.startsWith("/ai") ||
+    commentBody.includes("/ai ");
+
+  if (!isTriggered) {
+    console.log("[Info] Comment did not match bot trigger name or /ai prefix.");
     return;
   }
 
-  const prompt = commentBody.replace(config.botTriggerName, "").replace("/ai", "").trim();
-
-  await processTask({
+  await processConversationalFlow({
     installationId: installation.id,
     owner: repository.owner.login,
     repo: repository.name,
     issueNumber: issue.number,
-    taskTitle: issue.title,
-    taskBody: `Task instructions: ${prompt}\n\nOriginal Issue Context:\n${issue.body || ""}`,
+    issueTitle: issue.title,
+    initialBody: issue.body || "",
+    isPullRequest: Boolean(issue.pull_request),
   });
 });
 
-async function processTask(params: {
+async function processConversationalFlow(params: {
   installationId: number;
   owner: string;
   repo: string;
   issueNumber: number;
-  taskTitle: string;
-  taskBody: string;
+  issueTitle: string;
+  initialBody: string;
+  isPullRequest: boolean;
 }) {
-  const { installationId, owner, repo, issueNumber, taskTitle, taskBody } = params;
-  console.log(`[Task] Starting AI task on ${owner}/${repo} #${issueNumber}...`);
+  const { installationId, owner, repo, issueNumber, issueTitle, initialBody, isPullRequest } = params;
+  console.log(`[Task] Starting conversational AI process on ${owner}/${repo} #${issueNumber} (isPR: ${isPullRequest})...`);
 
   try {
     const githubService = getGitHubService();
     const geminiService = getGeminiService();
     const octokit = await githubService.getInstallationOctokit(installationId);
 
-    // Acknowledge receipt
-    await githubService.postIssueComment(
+    // 1. Fetch Complete Thread History
+    const threadHistory = await githubService.getThreadHistory(octokit, owner, repo, issueNumber);
+
+    // 2. Determine PR Branch info if applicable
+    let activeBranchName: string | undefined;
+    let baseCommitSha: string | undefined;
+    let baseBranch: string | undefined;
+
+    if (isPullRequest) {
+      const prInfo = await githubService.getPullRequestInfo(octokit, owner, repo, issueNumber);
+      activeBranchName = prInfo.branchName;
+      baseCommitSha = prInfo.latestCommitSha;
+      baseBranch = prInfo.baseBranch;
+    }
+
+    // 3. Fetch Repository Context (files & structure)
+    const repoContext = await githubService.getRepositoryContext(
       octokit,
       owner,
       repo,
-      issueNumber,
-      `🤖 **AI Autonomous Developer** sedang menganalisis arsitektur dan memproses task...\n\n- **Target Branch**: Akan dibuat branch terisolasi baru (aturan: *never develop on existing branch*).\n- **Engine**: Google Gemini (${config.geminiModel}).`
+      activeBranchName
     );
 
-    // 1. Fetch Repo Context
-    console.log(`[Task] Fetching repository context...`);
-    const repoContext = await githubService.getRepositoryContext(octokit, owner, repo);
+    if (!baseCommitSha) {
+      baseCommitSha = repoContext.latestCommitSha;
+    }
+    if (!baseBranch) {
+      baseBranch = repoContext.defaultBranch;
+    }
 
-    // 2. Generate Solution via Gemini
-    console.log(`[Task] Generating code changes via Gemini...`);
-    const resolution = await geminiService.generateCodeChanges({
+    // 4. Process Multi-Turn Reasoning with Gemini
+    const resolution = await geminiService.processConversationalTask({
       repoName: `${owner}/${repo}`,
-      issueTitle: taskTitle,
-      issueBody: taskBody,
+      issueTitle,
+      issueBody: initialBody,
+      threadHistory,
+      isPullRequest,
+      activeBranchName,
       repoStructure: repoContext.fileList,
       contextFiles: repoContext.contextFiles,
     });
 
-    if (!resolution.files || resolution.files.length === 0) {
-      console.log(`[Task] No files generated.`);
+    console.log(`[Resolution Action] => ${resolution.actionType}`);
+
+    // ACTION TYPE 1: CHAT_REPLY (Q&A, Discussion, Explanation - NO FILES MUTATED)
+    if (resolution.actionType === "CHAT_REPLY") {
+      console.log(`[Task] Replying to discussion without mutating repository.`);
       await githubService.postIssueComment(
         octokit,
         owner,
         repo,
         issueNumber,
-        `⚠️ AI selesai menganalisis tetapi tidak mendeteksi file yang perlu dimodifikasi untuk task ini.`
+        resolution.replyMessage || "Diskusi diterima."
       );
       return;
     }
 
-    // 3. Create Isolated Feature Branch & Open PR
-    console.log(`[Task] Creating branch ${resolution.branchName} and opening PR...`);
+    // ACTION TYPE 2: UPDATE_PR (Append commits to active PR branch - NO DUPLICATE PR)
+    if (resolution.actionType === "UPDATE_PR" && isPullRequest && activeBranchName) {
+      console.log(`[Task] Appending commits to existing PR branch: ${activeBranchName}...`);
+
+      if (!resolution.files || resolution.files.length === 0) {
+        await githubService.postIssueComment(
+          octokit,
+          owner,
+          repo,
+          issueNumber,
+          resolution.replyMessage || "Tidak ada perubahan file yang diperlukan."
+        );
+        return;
+      }
+
+      await githubService.appendCommitToExistingBranch({
+        octokit,
+        owner,
+        repo,
+        branchName: activeBranchName,
+        baseCommitSha: baseCommitSha!,
+        commitMessage: `chore(ai): apply review iteration from PR #${issueNumber}`,
+        files: resolution.files,
+      });
+
+      const filesListMarkdown = resolution.files
+        .map((f) => `- \`${f.path}\` (${f.action})`)
+        .join("\n");
+
+      await githubService.postIssueComment(
+        octokit,
+        owner,
+        repo,
+        issueNumber,
+        `✅ **Revisi Ditambahkan ke PR!**\n\n${resolution.replyMessage}\n\n**File yang Diperbarui:**\n${filesListMarkdown}\n\n*Commit telah ditambahkan langsung ke branch \`${activeBranchName}\`.*`
+      );
+      return;
+    }
+
+    // ACTION TYPE 3: CREATE_PR (New feature/fix on Issue -> Isolated New Branch + New PR)
+    console.log(`[Task] Creating isolated feature branch and opening new PR...`);
+    if (!resolution.files || resolution.files.length === 0) {
+      await githubService.postIssueComment(
+        octokit,
+        owner,
+        repo,
+        issueNumber,
+        `⚠️ AI menganalisis task tetapi tidak mendeteksi file yang perlu dibuat/diubah.`
+      );
+      return;
+    }
+
     const prResult = await githubService.createFeatureBranchAndPR({
       octokit,
       owner,
       repo,
-      baseBranch: repoContext.defaultBranch,
-      baseCommitSha: repoContext.latestCommitSha,
-      suggestedBranchName: resolution.branchName,
-      commitMessage: `feat(ai): ${resolution.prTitle} (closes #${issueNumber})`,
+      baseBranch: baseBranch!,
+      baseCommitSha: baseCommitSha!,
+      suggestedBranchName: resolution.branchName || `ai/task-${issueNumber}`,
+      commitMessage: `feat(ai): ${resolution.prTitle || issueTitle} (closes #${issueNumber})`,
       files: resolution.files,
-      prTitle: `[AI] ${resolution.prTitle}`,
-      prBody: resolution.summary,
+      prTitle: `[AI] ${resolution.prTitle || issueTitle}`,
+      prBody: resolution.summary || resolution.replyMessage,
       issueNumber,
     });
 
-    // 4. Report Success on Issue
-    console.log(`[Task] Successfully opened PR #${prResult.prNumber}`);
     await githubService.postIssueComment(
       octokit,
       owner,
       repo,
       issueNumber,
-      `✅ **Implementasi Selesai!**\n\n- **Branch Baru**: \`${prResult.branchName}\`\n- **Pull Request**: [#${prResult.prNumber} (${resolution.prTitle})](${prResult.prUrl})\n\n**Ringkasan Perubahan:**\n${resolution.summary}\n\n*Silakan review Pull Request. Setelah di-merge ke branch utama, pipeline automated deployment akan berjalan otomatis.*`
+      `✅ **Implementasi Selesai!**\n\n- **Branch Baru**: \`${prResult.branchName}\`\n- **Pull Request**: [#${prResult.prNumber} (${resolution.prTitle || issueTitle})](${prResult.prUrl})\n\n**Ringkasan:**\n${resolution.summary || resolution.replyMessage}\n\n*Silakan review PR di atas. Anda bisa mengomentari PR tersebut jika ingin meminta revisi tambahan.*`
     );
   } catch (error: any) {
-    console.error("[Task Error]", error);
+    console.error("[Conversational Task Error]", error);
     try {
       const githubService = getGitHubService();
       const octokit = await githubService.getInstallationOctokit(installationId);
@@ -212,6 +286,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       JSON.stringify({
         status: "online",
         service: "ai-github-bot",
+        mode: "conversational-pair-programmer",
         configured: {
           hasGeminiKey: Boolean(config.geminiApiKey),
           hasAppId: Boolean(config.appId),
@@ -238,8 +313,8 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
   try {
     const rawBody = await readBody(req);
-    
-    // Process webhook
+
+    // Process webhook with signature verification
     await webhooks.verifyAndReceive({
       id,
       name,

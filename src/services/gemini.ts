@@ -6,10 +6,21 @@ export interface FileChange {
   action: "create" | "update" | "delete";
 }
 
+export type ActionType = "CHAT_REPLY" | "CREATE_PR" | "UPDATE_PR";
+
+export interface ThreadMessage {
+  author: string;
+  content: string;
+  createdAt?: string;
+  isBot?: boolean;
+}
+
 export interface AIResolution {
-  prTitle: string;
-  summary: string;
-  branchName: string;
+  actionType: ActionType;
+  replyMessage: string;
+  prTitle?: string;
+  summary?: string;
+  branchName?: string;
   files: FileChange[];
 }
 
@@ -25,10 +36,13 @@ export class GeminiService {
     this.primaryModelName = modelName;
   }
 
-  async generateCodeChanges(params: {
+  async processConversationalTask(params: {
     repoName: string;
     issueTitle: string;
     issueBody: string;
+    threadHistory: ThreadMessage[];
+    isPullRequest: boolean;
+    activeBranchName?: string;
     repoStructure: string[];
     contextFiles: { path: string; content: string }[];
   }): Promise<AIResolution> {
@@ -42,15 +56,23 @@ export class GeminiService {
       ])
     );
 
+    const threadTranscript = params.threadHistory
+      .map((msg) => `[${msg.isBot ? "ASSISTANT (@bot)" : `USER (@${msg.author})`}]:\n${msg.content}`)
+      .join("\n\n---\n\n");
+
     const prompt = `
 Repository: ${params.repoName}
-Issue/Task Title: ${params.issueTitle}
+Thread Context: ${params.isPullRequest ? `Pull Request (Active Branch: ${params.activeBranchName || "PR"})` : "Issue Thread"}
+Thread Title: ${params.issueTitle}
 
-Task Details / Instructions:
+Initial Problem / Topic:
 ${params.issueBody}
 
+Conversation History (Chronological):
+${threadTranscript || "(No previous comments)"}
+
 Repository Structure (Key Files):
-${params.repoStructure.slice(0, 100).join("\n")}
+${params.repoStructure.slice(0, 120).join("\n")}
 
 Existing Key File Contents:
 ${params.contextFiles
@@ -62,14 +84,19 @@ ${file.content}
   )
   .join("\n")}
 
-Analyze the task requirements, determine the exact files to create, update, or delete, and return the complete structured output.
+USER INTENT & ACTION TYPE RULES:
+1. "CHAT_REPLY": If the user is asking a question, discussing concepts, asking for an explanation, asking why a decision was made, reviewing architecture, or NOT asking to generate code/files -> Set actionType to "CHAT_REPLY", provide a clear, helpful, high-conviction answer in "replyMessage", and keep "files" array EMPTY []. DO NOT create branches or PRs!
+2. "CREATE_PR": If the user is in a regular Issue thread and explicitly requests implementing code, creating files, adding features, or fixing bugs -> Set actionType to "CREATE_PR", provide the complete files in "files", generate a concise conventional "prTitle", write a markdown "summary", and specify a new "branchName" (format "ai/issue-...").
+3. "UPDATE_PR": If the user is commenting inside an active Pull Request thread requesting revisions, fixes, or additional code -> Set actionType to "UPDATE_PR", provide ONLY the updated/new files in "files", write a markdown explanation in "replyMessage" detailing what was updated.
+
+Determine the user's latest intent from the last message in the thread, synthesize the response, and return the structured JSON output.
 `;
 
     let lastError: any = null;
 
     for (const modelName of fallbackChain) {
       try {
-        console.log(`[Gemini Engine] Attempting code generation with model: ${modelName}...`);
+        console.log(`[Gemini Engine] Processing conversational task with model: ${modelName}...`);
         const model = this.genAI.getGenerativeModel({
           model: modelName,
           generationConfig: {
@@ -77,62 +104,76 @@ Analyze the task requirements, determine the exact files to create, update, or d
             responseSchema: {
               type: SchemaType.OBJECT,
               properties: {
-                prTitle: { type: SchemaType.STRING, description: "Clear, conventional commit style PR title" },
-                summary: { type: SchemaType.STRING, description: "Detailed Markdown summary of changes with Conviction score" },
-                branchName: { type: SchemaType.STRING, description: "Git branch name starting with ai/ followed by concise slug" },
+                actionType: {
+                  type: SchemaType.STRING,
+                  format: "enum",
+                  enum: ["CHAT_REPLY", "CREATE_PR", "UPDATE_PR"],
+                  description: "CHAT_REPLY for conversational Q&A without code, CREATE_PR for new features on issues, UPDATE_PR for revising active PRs",
+                },
+                replyMessage: {
+                  type: SchemaType.STRING,
+                  description: "Markdown formatted response message for chat or PR update summary",
+                },
+                prTitle: {
+                  type: SchemaType.STRING,
+                  description: "Conventional commit PR title (if CREATE_PR)",
+                },
+                summary: {
+                  type: SchemaType.STRING,
+                  description: "Detailed summary of code changes with conviction score (if CREATE_PR)",
+                },
+                branchName: {
+                  type: SchemaType.STRING,
+                  description: "Suggested branch name starting with ai/ (if CREATE_PR)",
+                },
                 files: {
                   type: SchemaType.ARRAY,
                   items: {
                     type: SchemaType.OBJECT,
                     properties: {
                       path: { type: SchemaType.STRING, description: "Relative file path from repository root" },
-                      content: { type: SchemaType.STRING, description: "Full new content of the file. If action is delete, can be empty string." },
+                      content: { type: SchemaType.STRING, description: "Full complete file content" },
                       action: {
                         type: SchemaType.STRING,
                         format: "enum",
                         enum: ["create", "update", "delete"],
-                        description: "create, update, or delete",
                       },
                     },
                     required: ["path", "content", "action"],
                   },
                 },
               },
-              required: ["prTitle", "summary", "branchName", "files"],
+              required: ["actionType", "replyMessage", "files"],
             },
           },
-          systemInstruction: `You are an elite Autonomous AI Software Architect and Principal Engineer.
-Your task is to analyze user tasks/issues for GitHub repositories, synthesize high-quality code changes, and provide full file implementations.
+          systemInstruction: `You are an elite Autonomous AI Software Architect and Interactive Pair Programmer (like Claude Code).
 
 STRICT INVARIANTS:
-1. Architectural Discipline: Follow Clean Architecture, strict separation of concerns, and strict type safety.
-2. No Race Conditions: Ensure all asynchronous operations, database calls, and UI state mutations are properly protected against race conditions.
-3. Apple-Level UI Minimalism (for Frontend/Flutter): Spacious padding, natural elevation, zero cluttered borders. Reusable widgets extracted into structured StatelessWidgets.
-4. Complete File Contents: Always provide the COMPLETE file content for any modified or newly created file. Never truncate with comments like "// ... rest of the code".
-5. Branching Rule: Always generate a new branch name starting with "ai/" (e.g., "ai/issue-12-add-auth-flow").
-6. Summary Formatting: Include a Conviction Score in the summary: "[Conviction: High/Medium/Low] - [Rationale]".`,
+1. Conversational Precision: When the user asks conceptual questions, asks for advice, or discusses ideas, ONLY answer with "CHAT_REPLY" and NEVER output files. Do not modify the repo unless explicitly told to build/code.
+2. Clean Architecture & No Race Conditions: When writing code, maintain strict architectural layer decoupling, avoid race conditions, and use Apple-level UI minimalism.
+3. Complete Code: Never output placeholders or truncated comments like "// ... existing code". Always return the full, valid file contents.
+4. Conviction Scoring: In technical explanations and code summaries, include "[Conviction: High/Medium/Low] - [Rationale]".`,
         });
 
         const result = await model.generateContent(prompt);
         const text = result.response.text();
         const parsed: AIResolution = JSON.parse(text);
 
-        // Enforce branch name safety
-        if (!parsed.branchName || !parsed.branchName.startsWith("ai/")) {
+        // Safety fallback for branch name on CREATE_PR
+        if (parsed.actionType === "CREATE_PR" && (!parsed.branchName || !parsed.branchName.startsWith("ai/"))) {
           const sanitizedSlug = params.issueTitle
             .toLowerCase()
             .replace(/[^a-z0-9]+/g, "-")
             .replace(/(^-|-$)/g, "")
             .slice(0, 30);
-          parsed.branchName = `ai/${sanitizedSlug || "automated-fix"}-${Date.now()}`;
+          parsed.branchName = `ai/${sanitizedSlug || "feature"}-${Date.now()}`;
         }
 
-        console.log(`[Gemini Engine] Generation succeeded using model: ${modelName}`);
+        console.log(`[Gemini Engine] Task successfully processed with actionType: ${parsed.actionType} using model: ${modelName}`);
         return parsed;
       } catch (err: any) {
         console.warn(`[Gemini Engine] Model ${modelName} failed:`, err?.message || err);
         lastError = err;
-        // Continue to next model in fallback chain
       }
     }
 

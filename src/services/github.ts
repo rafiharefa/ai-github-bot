@@ -1,6 +1,6 @@
 import { App } from "@octokit/app";
 import { Octokit } from "@octokit/rest";
-import { FileChange } from "./gemini.js";
+import { FileChange, ThreadMessage } from "./gemini.js";
 
 const CustomApp = App.defaults({
   Octokit: Octokit,
@@ -21,10 +21,37 @@ export class GitHubService {
     return octokit;
   }
 
+  async getThreadHistory(
+    octokit: Octokit,
+    owner: string,
+    repo: string,
+    issueNumber: number
+  ): Promise<ThreadMessage[]> {
+    try {
+      const { data: comments } = await octokit.rest.issues.listComments({
+        owner,
+        repo,
+        issue_number: issueNumber,
+        per_page: 50,
+      });
+
+      return comments.map((c) => ({
+        author: c.user?.login || "anonymous",
+        content: c.body || "",
+        createdAt: c.created_at,
+        isBot: c.user?.type === "Bot" || (c.user?.login || "").includes("[bot]"),
+      }));
+    } catch (err) {
+      console.warn("[GitHub Service] Failed to list comments for thread history:", err);
+      return [];
+    }
+  }
+
   async getRepositoryContext(
     octokit: Octokit,
     owner: string,
-    repo: string
+    repo: string,
+    targetBranch?: string
   ): Promise<{
     defaultBranch: string;
     latestCommitSha: string;
@@ -33,13 +60,13 @@ export class GitHubService {
   }> {
     // 1. Get Repo Details
     const { data: repoData } = await octokit.rest.repos.get({ owner, repo });
-    const defaultBranch = repoData.default_branch;
+    const branchToUse = targetBranch || repoData.default_branch;
 
-    // 2. Get latest commit SHA on default branch
+    // 2. Get latest commit SHA on target branch
     const { data: refData } = await octokit.rest.git.getRef({
       owner,
       repo,
-      ref: `heads/${defaultBranch}`,
+      ref: `heads/${branchToUse}`,
     });
     const latestCommitSha = refData.object.sha;
 
@@ -79,57 +106,73 @@ export class GitHubService {
             owner,
             repo,
             path: filePath,
+            ref: branchToUse,
           });
 
           if ("content" in fileData && fileData.encoding === "base64") {
             const decoded = Buffer.from(fileData.content, "base64").toString("utf-8");
             contextFiles.push({
               path: filePath,
-              content: decoded.slice(0, 15000), // Protect token limit per file
+              content: decoded.slice(0, 15000),
             });
           }
         } catch {
-          // Ignore read errors on individual files
+          // Ignore read errors on individual context files
         }
       }
     }
 
     return {
-      defaultBranch,
+      defaultBranch: branchToUse,
       latestCommitSha,
       fileList,
       contextFiles,
     };
   }
 
+  async getPullRequestInfo(
+    octokit: Octokit,
+    owner: string,
+    repo: string,
+    prNumber: number
+  ): Promise<{
+    branchName: string;
+    latestCommitSha: string;
+    baseBranch: string;
+    title: string;
+    isOpen: boolean;
+  }> {
+    const { data: prData } = await octokit.rest.pulls.get({
+      owner,
+      repo,
+      pull_number: prNumber,
+    });
+
+    return {
+      branchName: prData.head.ref,
+      latestCommitSha: prData.head.sha,
+      baseBranch: prData.base.ref,
+      title: prData.title,
+      isOpen: prData.state === "open",
+    };
+  }
+
   /**
-   * INVARIANT: ALWAYS creates a new dedicated branch first.
-   * Never commits to default branch or existing branches.
+   * Appends commits directly to an existing Pull Request branch.
+   * Prevents creating duplicate PRs when iterating on active work.
    */
-  async createFeatureBranchAndPR(params: {
+  async appendCommitToExistingBranch(params: {
     octokit: Octokit;
     owner: string;
     repo: string;
-    baseBranch: string;
+    branchName: string;
     baseCommitSha: string;
-    suggestedBranchName: string;
     commitMessage: string;
     files: FileChange[];
-    prTitle: string;
-    prBody: string;
-    issueNumber?: number;
-  }): Promise<{ prUrl: string; prNumber: number; branchName: string }> {
-    const { octokit, owner, repo, baseBranch, baseCommitSha, files, prTitle, prBody, issueNumber } = params;
+  }): Promise<{ commitSha: string }> {
+    const { octokit, owner, repo, branchName, baseCommitSha, commitMessage, files } = params;
 
-    // 1. Ensure unique, clean new branch name
-    const timestamp = Date.now();
-    let branchName = params.suggestedBranchName.startsWith("ai/")
-      ? `${params.suggestedBranchName}-${timestamp.toString().slice(-4)}`
-      : `ai/${params.suggestedBranchName}-${timestamp.toString().slice(-4)}`;
-
-    branchName = branchName.replace(/[^a-zA-Z0-9_\-\/]/g, "-");
-
-    // 2. Create Blobs for files
+    // 1. Create Blobs
     const treeItems: { path: string; mode: "100644"; type: "blob"; sha?: string | null }[] = [];
 
     for (const file of files) {
@@ -138,7 +181,7 @@ export class GitHubService {
           path: file.path,
           mode: "100644",
           type: "blob",
-          sha: null, // Deletes the file from git tree
+          sha: null,
         });
       } else {
         const { data: blobData } = await octokit.rest.git.createBlob({
@@ -157,7 +200,7 @@ export class GitHubService {
       }
     }
 
-    // 3. Create new Git Tree based on base commit
+    // 2. Create Tree
     const { data: baseCommitData } = await octokit.rest.git.getCommit({
       owner,
       repo,
@@ -171,7 +214,92 @@ export class GitHubService {
       tree: treeItems,
     });
 
-    // 4. Create new Commit
+    // 3. Create Commit
+    const { data: newCommit } = await octokit.rest.git.createCommit({
+      owner,
+      repo,
+      message: commitMessage,
+      tree: newTree.sha,
+      parents: [baseCommitSha],
+    });
+
+    // 4. Update Branch Ref
+    await octokit.rest.git.updateRef({
+      owner,
+      repo,
+      ref: `heads/${branchName}`,
+      sha: newCommit.sha,
+    });
+
+    return { commitSha: newCommit.sha };
+  }
+
+  /**
+   * INVARIANT: ALWAYS creates a new dedicated branch first when starting new feature.
+   * Never commits to default branch directly.
+   */
+  async createFeatureBranchAndPR(params: {
+    octokit: Octokit;
+    owner: string;
+    repo: string;
+    baseBranch: string;
+    baseCommitSha: string;
+    suggestedBranchName: string;
+    commitMessage: string;
+    files: FileChange[];
+    prTitle: string;
+    prBody: string;
+    issueNumber?: number;
+  }): Promise<{ prUrl: string; prNumber: number; branchName: string }> {
+    const { octokit, owner, repo, baseBranch, baseCommitSha, files, prTitle, prBody, issueNumber } = params;
+
+    const timestamp = Date.now();
+    let branchName = params.suggestedBranchName.startsWith("ai/")
+      ? `${params.suggestedBranchName}-${timestamp.toString().slice(-4)}`
+      : `ai/${params.suggestedBranchName}-${timestamp.toString().slice(-4)}`;
+
+    branchName = branchName.replace(/[^a-zA-Z0-9_\-\/]/g, "-");
+
+    const treeItems: { path: string; mode: "100644"; type: "blob"; sha?: string | null }[] = [];
+
+    for (const file of files) {
+      if (file.action === "delete") {
+        treeItems.push({
+          path: file.path,
+          mode: "100644",
+          type: "blob",
+          sha: null,
+        });
+      } else {
+        const { data: blobData } = await octokit.rest.git.createBlob({
+          owner,
+          repo,
+          content: Buffer.from(file.content).toString("base64"),
+          encoding: "base64",
+        });
+
+        treeItems.push({
+          path: file.path,
+          mode: "100644",
+          type: "blob",
+          sha: blobData.sha,
+        });
+      }
+    }
+
+    const { data: baseCommitData } = await octokit.rest.git.getCommit({
+      owner,
+      repo,
+      commit_sha: baseCommitSha,
+    });
+
+    const { data: newTree } = await octokit.rest.git.createTree({
+      owner,
+      repo,
+      base_tree: baseCommitData.tree.sha,
+      tree: treeItems,
+    });
+
     const { data: newCommit } = await octokit.rest.git.createCommit({
       owner,
       repo,
@@ -180,7 +308,6 @@ export class GitHubService {
       parents: [baseCommitSha],
     });
 
-    // 5. Create new branch reference
     await octokit.rest.git.createRef({
       owner,
       repo,
@@ -188,7 +315,6 @@ export class GitHubService {
       sha: newCommit.sha,
     });
 
-    // 6. Open Pull Request to base branch
     const { data: prData } = await octokit.rest.pulls.create({
       owner,
       repo,
