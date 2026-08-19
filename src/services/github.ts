@@ -2,11 +2,15 @@ import { App } from "@octokit/app";
 import { Octokit } from "@octokit/rest";
 import { FileChange } from "./gemini.js";
 
+const CustomApp = App.defaults({
+  Octokit: Octokit,
+});
+
 export class GitHubService {
-  private app: App;
+  private app: InstanceType<typeof CustomApp>;
 
   constructor(appId: string, privateKey: string) {
-    this.app = new App({
+    this.app = new CustomApp({
       appId,
       privateKey,
     });
