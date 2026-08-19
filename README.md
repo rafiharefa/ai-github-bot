@@ -1,90 +1,103 @@
 # AI Autonomous Developer (GitHub App Engine)
 
-Sistem otonom berbasis **GitHub App** yang menghubungkan seluruh repositori GitHub Anda dengan **Google Gemini API** (Gemini 2.0 Flash) untuk melakukan sintesis kode, pembuatan branch fitur baru secara terisolasi, dan pembukaan Pull Request secara otomatis 24/7.
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Frafiharefa%2Fai-github-bot&env=GEMINI_API_KEY,GEMINI_MODEL,GITHUB_APP_ID,GITHUB_WEBHOOK_SECRET,BOT_TRIGGER_NAME,GITHUB_PRIVATE_KEY&envDescription=Fill%20in%20your%20Google%20Gemini%20API%20Key%20and%20GitHub%20App%20Credentials&project-name=my-ai-github-bot&repo-name=ai-github-bot)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+[![Powered by Gemini](https://img.shields.io/badge/AI%20Engine-Gemini%203.7%20%2F%202.5-orange.svg)](https://aistudio.google.com/)
+
+An open-source, serverless AI Software Engineering bot for GitHub. Connect your GitHub account with **Google Gemini (Gemini 3.7 / 2.5 / 2.0)** to synthesize code, enforce Clean Architecture, isolate git branches, and open automated Pull Requests 24/7 directly from GitHub Issues or comments.
 
 ---
 
-## 🚀 Fitur Utama
+## ⚡ 1-Click Quickstart (Self-Host with Your Own Key)
 
-- **Account-Wide Coverage:** Aktif secara otomatis di semua repositori saat ini dan masa depan di akun `@rafiharefa` tanpa perlu menyalin file konfigurasi berulang kali.
-- **Isolated Branching Guarantee:** Selalu membuat branch baru terisolasi (format `ai/issue-...`), tidak pernah menulis langsung ke branch utama atau branch aktif.
-- **Context-Aware:** Membaca struktur file, `AGENTS.md`, `README.md`, dan konfigurasi proyek terkait untuk memahami konteks arsitektur sebelum memodifikasi kode.
-- **Auto Pull Request:** Otomatis menghasilkan commit dan membuka Pull Request lengkap dengan deskripsi perubahan dan *conviction score*.
+Anyone can deploy and host their own private or public instance in under **3 minutes** using their own **Free Tier** Google Gemini API Key and Vercel account ($0/month).
 
----
-
-## 🛠️ Panduan Setup Langkah Demi Langkah
-
-### Langkah 1: Dapatkan Gemini API Key
-1. Buka [Google AI Studio](https://aistudio.google.com/).
-2. Login dengan akun Google One Anda.
-3. Klik **Get API key** $\to$ **Create API key**.
-4. Salin key tersebut untuk variabel `GEMINI_API_KEY`.
+### Step 1: Get a Free Google Gemini API Key
+1. Go to [Google AI Studio](https://aistudio.google.com/).
+2. Click **Get API key** $\to$ **Create API key** (Free tier provides 1,500 requests/day).
 
 ---
 
-### Langkah 2: Registrasi GitHub App
-1. Buka GitHub $\to$ **Settings** $\to$ **Developer settings** $\to$ **GitHub Apps** $\to$ [New GitHub App](https://github.com/settings/apps/new).
-2. Isi data berikut:
-   - **GitHub App name**: `rafiharefa-ai-bot` (atau nama unik pilihan Anda).
-   - **Homepage URL**: URL profil GitHub Anda (misal `https://github.com/rafiharefa`).
-   - **Webhook URL**: *(Isi sementara dengan `https://example.com/api/webhook`, akan diupdate setelah deploy ke Vercel)*.
-   - **Webhook secret**: Buat string acak yang aman (contoh: `ai_secret_webhook_2026`).
-3. **Repository permissions:**
-   - **Contents**: `Read and write` (Untuk membaca file dan membuat branch/commit).
-   - **Issues**: `Read and write` (Untuk membaca deskripsi dan membalas status).
-   - **Pull requests**: `Read and write` (Untuk menerbitkan PR otomatis).
-   - **Metadata**: `Read-only` (Default).
-4. **Subscribe to events:**
-   - Centang **Issues**.
-   - Centang **Issue comment**.
-5. Klik **Create GitHub App**.
-6. Setelah dibuat:
-   - Catat **App ID**.
-   - Scroll ke bagian **Private keys** dan klik **Generate a private key**. File `.pem` akan terunduh.
-7. Di menu sebelah kiri, klik **Install App** $\to$ Pilih akun Anda $\to$ Pilih opsi **All repositories** $\to$ Klik **Install**.
+### Step 2: Register your GitHub App
+1. Go to [GitHub App Registration](https://github.com/settings/apps/new).
+2. Fill in the basics:
+   - **GitHub App name**: `my-ai-developer-bot` (or any unique name).
+   - **Homepage URL**: Your GitHub profile URL.
+   - **Webhook URL**: Temporary URL (e.g. `https://example.com/api/webhook`), you will update this after deploying to Vercel.
+   - **Webhook secret**: Generate a secure secret string (e.g. `my_custom_secret_12345`).
+3. Set **Permissions**:
+   - `Repository permissions` $\to$ **Contents**: `Read and write`
+   - `Repository permissions` $\to$ **Issues**: `Read and write`
+   - `Repository permissions` $\to$ **Pull requests**: `Read and write`
+4. Set **Subscribe to events**:
+   - Check `[x] Issues`
+   - Check `[x] Issue comment`
+5. Click **Create GitHub App**.
+6. On your app page:
+   - Note the **App ID**.
+   - Click **Generate a private key** (downloads a `.pem` file).
+   - Click **Install App** on the left menu $\to$ Install to your account with **All repositories** (or select specific repos).
 
 ---
 
-### Langkah 3: Deploy ke Vercel
-1. Buat repository baru di GitHub Anda untuk project ini (misal: `https://github.com/rafiharefa/ai-github-bot`) dan push code ini.
-2. Buka [Vercel Dashboard](https://vercel.com/) $\to$ **Add New** $\to$ **Project** $\to$ Import repository `ai-github-bot`.
-3. Di bagian **Environment Variables**, tambahkan:
-   - `GEMINI_API_KEY`: API key dari Google AI Studio.
-   - `GITHUB_APP_ID`: App ID dari GitHub App Anda.
-   - `GITHUB_WEBHOOK_SECRET`: Webhook secret yang Anda buat di Langkah 2.
-   - `BOT_TRIGGER_NAME`: `@rafiharefa-bot`
-   - `GITHUB_PRIVATE_KEY`: Buka file `.pem` yang telah diunduh dengan text editor, salin seluruh isinya (termasuk `-----BEGIN RSA PRIVATE KEY-----` dan `-----END RSA PRIVATE KEY-----`).
-4. Klik **Deploy**.
+### Step 3: Deploy to Vercel in 1-Click
+
+Click the button below to deploy this engine directly to your Vercel account:
+
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Frafiharefa%2Fai-github-bot&env=GEMINI_API_KEY,GEMINI_MODEL,GITHUB_APP_ID,GITHUB_WEBHOOK_SECRET,BOT_TRIGGER_NAME,GITHUB_PRIVATE_KEY&envDescription=Fill%20in%20your%20Google%20Gemini%20API%20Key%20and%20GitHub%20App%20Credentials&project-name=my-ai-github-bot&repo-name=ai-github-bot)
+
+Fill in the environment variables during deployment:
+- `GEMINI_API_KEY`: Your Gemini API Key from Google AI Studio.
+- `GEMINI_MODEL`: `gemini-3.7-flash` (or `gemini-2.5-flash`).
+- `GITHUB_APP_ID`: App ID from Step 2.
+- `GITHUB_WEBHOOK_SECRET`: Webhook secret you set in Step 2.
+- `BOT_TRIGGER_NAME`: `@my-bot-name` (or `@rafiharefa-bot`).
+- `GITHUB_PRIVATE_KEY`: Open the downloaded `.pem` file in a text editor, copy and paste the entire content.
 
 ---
 
-### Langkah 4: Update Webhook URL di GitHub App
-1. Salin domain URL Vercel yang telah selesai di-deploy (contoh: `https://ai-github-bot-xyz.vercel.app`).
-2. Kembali ke GitHub $\to$ **Settings** $\to$ **Developer settings** $\to$ **GitHub Apps** $\to$ Edit App Anda.
-3. Ubah **Webhook URL** menjadi:
+### Step 4: Update Webhook URL in GitHub App
+1. Copy your live Vercel domain (e.g. `https://my-ai-github-bot.vercel.app`).
+2. Go back to GitHub $\to$ **Settings** $\to$ **Developer settings** $\to$ **GitHub Apps** $\to$ [Your App].
+3. Set **Webhook URL** to:
+   ```text
+   https://my-ai-github-bot.vercel.app/api/webhook
    ```
-   https://ai-github-bot-xyz.vercel.app/api/webhook
-   ```
-4. Klik **Save changes**.
+4. Click **Save changes**.
 
 ---
 
-## 💡 Cara Menggunakan di Semua Repository
+## 🎯 Usage Across Your Repositories
 
-Setelah terpasang, Anda dapat memicu AI di repositori mana saja:
+Once installed, trigger the bot from any repository on your desktop or mobile phone:
 
-### Cara A: Melalui Issue Baru
-1. Buat Issue baru di repo mana pun dengan label `ai-task` atau awalan judul `[AI]`.
-2. Tuliskan deskripsi task secara jelas.
-3. Bot akan otomatis:
-   - Membalas konfirmasi di Issue.
-   - Membuat branch baru `ai/issue-...`.
-   - Mengubah/membuat file yang diperlukan.
-   - Menerbitkan Pull Request baru.
-
-### Cara B: Melalui Komentar di Issue
-Komentari issue yang sudah ada dengan format:
+### Option A: Issue Command
+Add a comment on any issue:
 ```text
-@rafiharefa-bot develop Tolong buatkan unit test untuk auth service dan perbaiki error handling di repository layer.
+/ai develop Add unit tests for auth repository and handle edge cases for network failures
 ```
+
+### Option B: New Issue Trigger
+Create a new Issue with title prefix `[AI]` or tag it with label `ai-task`:
+- **Title**: `[AI] Refactor navigation layout`
+- **Description**: Detailed requirements of what needs to be changed.
+
+The bot will automatically:
+1. Acknowledge the issue with a comment.
+2. Create an isolated branch (`ai/issue-...`).
+3. Synthesize the changes and create a Git tree.
+4. Open a clean Pull Request with full diff documentation and conviction scores.
+
+---
+
+## 🛡️ Core Invariants
+
+- **Isolated Branching Guarantee:** The bot never writes directly to `main`, `master`, or active working branches.
+- **Multi-Model Fallback:** Automatically switches between `gemini-3.7-flash` $\to$ `gemini-2.5-flash` $\to$ `gemini-2.0-flash` $\to$ `gemini-1.5-pro` on demand spikes (503/429).
+- **Clean Architecture & Concurrency Safety:** Enforces strict typing, domain layer separation, and eliminates race conditions.
+
+---
+
+## 📄 License
+
+This project is open source and available under the [MIT License](LICENSE).
