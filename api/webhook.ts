@@ -57,6 +57,22 @@ webhooks.on("issues.opened", async ({ payload }) => {
     return;
   }
 
+  // Security Check: Only allow repo owner, collaborators, or members
+  const authorAssociation = issue.author_association;
+  const senderLogin = issue.user?.login;
+  const repoOwner = repository.owner.login;
+
+  const isAuthorized =
+    senderLogin === repoOwner ||
+    authorAssociation === "OWNER" ||
+    authorAssociation === "COLLABORATOR" ||
+    authorAssociation === "MEMBER";
+
+  if (!isAuthorized) {
+    console.warn(`[Security] Ignored unauthorized issue from @${senderLogin} on ${repository.full_name}`);
+    return;
+  }
+
   await processConversationalFlow({
     installationId: installation.id,
     owner: repository.owner.login,
@@ -78,15 +94,18 @@ webhooks.on("issue_comment.created", async ({ payload }) => {
   console.log(`[Event] issue_comment.created on ${repository.full_name} #${issue.number}`);
 
   if (comment.user?.type === "Bot" || !installation) return;
+  const authorAssociation = comment.author_association;
+  const senderLogin = comment.user?.login;
+  const repoOwner = repository.owner.login;
 
-  const commentBody = comment.body.trim();
-  const isTriggered =
-    commentBody.includes(config.botTriggerName) ||
-    commentBody.startsWith("/ai") ||
-    commentBody.includes("/ai ");
+  const isAuthorized =
+    senderLogin === repoOwner ||
+    authorAssociation === "OWNER" ||
+    authorAssociation === "COLLABORATOR" ||
+    authorAssociation === "MEMBER";
 
-  if (!isTriggered) {
-    console.log("[Info] Comment did not match bot trigger name or /ai prefix.");
+  if (!isAuthorized) {
+    console.warn(`[Security] Ignored unauthorized trigger from @${senderLogin} on ${repository.full_name}`);
     return;
   }
 

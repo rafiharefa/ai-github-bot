@@ -110,12 +110,12 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
     const telegramService = getTelegramService();
 
-    // Security Check: Whitelist verification
-    if (config.telegramAllowedUserId && fromId !== config.telegramAllowedUserId) {
+    // Security Check: Whitelist verification (Mandatory)
+    if (!config.telegramAllowedUserId || fromId !== config.telegramAllowedUserId) {
       console.warn(`[Telegram Security] Unauthorized attempt from user ID: ${fromId}`);
       await telegramService.sendMessage(
         chatId,
-        `⛔ **Akses Ditolak**\nAkun Telegram Anda (ID: \`${fromId}\`) tidak terdaftar dalam whitelist.`
+        `⛔ **Akses Ditolak**\nAkun Telegram Anda (ID: \`${fromId || "Unknown"}\`) tidak terdaftar dalam whitelist.\n\n*Pastikan variabel TELEGRAM_ALLOWED_USER_ID di Vercel telah diisi dengan User ID Anda.*`
       );
       res.statusCode = 200;
       res.end(JSON.stringify({ ok: true, status: "unauthorized" }));
