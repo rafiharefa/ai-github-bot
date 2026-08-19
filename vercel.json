@@ -1,9 +1,9 @@
 {
   "version": 2,
-  "routes": [
+  "rewrites": [
     {
-      "src": "/(.*)",
-      "dest": "/api/webhook.ts"
+      "source": "/api/webhook",
+      "destination": "/api/webhook"
     }
   ]
 }
