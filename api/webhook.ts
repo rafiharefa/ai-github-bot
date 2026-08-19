@@ -11,8 +11,27 @@ const webhooks = new Webhooks({
   secret: config.webhookSecret || "development_secret",
 });
 
-const githubService = new GitHubService(config.appId, config.privateKey);
-const geminiService = new GeminiService(config.geminiApiKey, config.geminiModel);
+let _githubService: GitHubService | null = null;
+function getGitHubService(): GitHubService {
+  if (!_githubService) {
+    if (!config.appId || !config.privateKey) {
+      throw new Error("GITHUB_APP_ID and GITHUB_PRIVATE_KEY must be configured in environment variables.");
+    }
+    _githubService = new GitHubService(config.appId, config.privateKey);
+  }
+  return _githubService;
+}
+
+let _geminiService: GeminiService | null = null;
+function getGeminiService(): GeminiService {
+  if (!_geminiService) {
+    if (!config.geminiApiKey) {
+      throw new Error("GEMINI_API_KEY must be configured in environment variables.");
+    }
+    _geminiService = new GeminiService(config.geminiApiKey, config.geminiModel);
+  }
+  return _geminiService;
+}
 
 // 1. Handle issue opened with label 'ai' or 'ai-task'
 webhooks.on("issues.opened", async ({ payload }) => {
@@ -48,7 +67,6 @@ webhooks.on("issue_comment.created", async ({ payload }) => {
   const repository = payload.repository;
   const installation = payload.installation;
 
-  // Ignore bot's own comments or missing installation
   if (comment.user?.type === "Bot" || !installation) return;
 
   const commentBody = comment.body.trim();
@@ -77,6 +95,8 @@ async function processTask(params: {
   taskBody: string;
 }) {
   const { installationId, owner, repo, issueNumber, taskTitle, taskBody } = params;
+  const githubService = getGitHubService();
+  const geminiService = getGeminiService();
 
   try {
     const octokit = await githubService.getInstallationOctokit(installationId);
@@ -87,7 +107,7 @@ async function processTask(params: {
       owner,
       repo,
       issueNumber,
-      `🤖 **AI Autonomous Developer** sedang menganalisis arsitektur dan memproses task...\n\n- **Target Branch**: Akan dibuat branch terisolasi baru (aturan: *never develop on existing branch*).\n- **Engine**: Google Gemini 2.0 Flash.`
+      `🤖 **AI Autonomous Developer** sedang menganalisis arsitektur dan memproses task...\n\n- **Target Branch**: Akan dibuat branch terisolasi baru (aturan: *never develop on existing branch*).\n- **Engine**: Google Gemini 3.7 Flash.`
     );
 
     // 1. Fetch Repo Context
@@ -158,7 +178,19 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
   if (req.method === "GET") {
     res.statusCode = 200;
     res.setHeader("Content-Type", "application/json");
-    res.end(JSON.stringify({ status: "healthy", service: "ai-github-bot" }));
+    res.end(
+      JSON.stringify({
+        status: "online",
+        service: "ai-github-bot",
+        configured: {
+          hasGeminiKey: Boolean(config.geminiApiKey),
+          hasAppId: Boolean(config.appId),
+          hasPrivateKey: Boolean(config.privateKey),
+          hasWebhookSecret: Boolean(config.webhookSecret),
+          model: config.geminiModel,
+        },
+      })
+    );
     return;
   }
 
@@ -166,7 +198,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
   return middleware(req, res);
 }
 
-// Support running directly in standalone mode (local development)
+// Standalone mode for local development
 if (process.env.NODE_ENV !== "production" && !process.env.VERCEL) {
   const PORT = process.env.PORT || 3000;
   const server = http.createServer(handler);
