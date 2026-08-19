@@ -3,6 +3,7 @@ dotenv.config();
 
 export interface BotConfig {
   geminiApiKey: string;
+  geminiModel: string;
   appId: string;
   privateKey: string;
   webhookSecret: string;
@@ -11,6 +12,7 @@ export interface BotConfig {
 
 export function getBotConfig(): BotConfig {
   const geminiApiKey = process.env.GEMINI_API_KEY || "";
+  const geminiModel = process.env.GEMINI_MODEL || "gemini-2.5-flash";
   const appId = process.env.GITHUB_APP_ID || "";
   let privateKey = process.env.GITHUB_PRIVATE_KEY || "";
   const webhookSecret = process.env.GITHUB_WEBHOOK_SECRET || "";
@@ -28,6 +30,7 @@ export function getBotConfig(): BotConfig {
 
   return {
     geminiApiKey,
+    geminiModel,
     appId,
     privateKey,
     webhookSecret,

@@ -12,7 +12,7 @@ const webhooks = new Webhooks({
 });
 
 const githubService = new GitHubService(config.appId, config.privateKey);
-const geminiService = new GeminiService(config.geminiApiKey);
+const geminiService = new GeminiService(config.geminiApiKey, config.geminiModel);
 
 // 1. Handle issue opened with label 'ai' or 'ai-task'
 webhooks.on("issues.opened", async ({ payload }) => {
