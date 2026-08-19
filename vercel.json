@@ -4,6 +4,10 @@
     {
       "source": "/api/webhook",
       "destination": "/api/webhook"
+    },
+    {
+      "source": "/api/telegram",
+      "destination": "/api/telegram"
     }
   ]
 }

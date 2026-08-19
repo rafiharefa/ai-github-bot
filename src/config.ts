@@ -8,6 +8,9 @@ export interface BotConfig {
   privateKey: string;
   webhookSecret: string;
   botTriggerName: string;
+  telegramBotToken: string;
+  telegramAllowedUserId: string;
+  githubOwner: string;
 }
 
 function sanitizeEnv(value: string | undefined): string {
@@ -26,6 +29,9 @@ export function getBotConfig(): BotConfig {
   let privateKey = process.env.GITHUB_PRIVATE_KEY || "";
   const webhookSecret = sanitizeEnv(process.env.GITHUB_WEBHOOK_SECRET);
   const botTriggerName = sanitizeEnv(process.env.BOT_TRIGGER_NAME) || "@rafiharefa-bot";
+  const telegramBotToken = sanitizeEnv(process.env.TELEGRAM_BOT_TOKEN);
+  const telegramAllowedUserId = sanitizeEnv(process.env.TELEGRAM_ALLOWED_USER_ID);
+  const githubOwner = sanitizeEnv(process.env.GITHUB_OWNER) || "rafiharefa";
 
   // Handle base64 encoded private key or escaped newlines
   privateKey = privateKey.trim();
@@ -49,5 +55,8 @@ export function getBotConfig(): BotConfig {
     privateKey,
     webhookSecret,
     botTriggerName,
+    telegramBotToken,
+    telegramAllowedUserId,
+    githubOwner,
   };
 }

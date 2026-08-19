@@ -21,6 +21,37 @@ export class GitHubService {
     return octokit;
   }
 
+  async getRepoInstallationOctokit(owner: string, repo: string): Promise<{ octokit: Octokit; installationId: number }> {
+    const { data: installation } = await this.app.octokit.rest.apps.getRepoInstallation({
+      owner,
+      repo,
+    });
+    const octokit = await this.getInstallationOctokit(installation.id);
+    return { octokit, installationId: installation.id };
+  }
+
+  async listAccessibleRepositories(owner: string): Promise<{ name: string; full_name: string; private: boolean; default_branch: string }[]> {
+    try {
+      const { data: installation } = await this.app.octokit.rest.apps.getUserInstallation({
+        username: owner,
+      });
+      const octokit = await this.getInstallationOctokit(installation.id);
+      const { data: repoData } = await octokit.rest.apps.listReposAccessibleToInstallation({
+        per_page: 50,
+      });
+
+      return repoData.repositories.map((r) => ({
+        name: r.name,
+        full_name: r.full_name,
+        private: r.private,
+        default_branch: r.default_branch,
+      }));
+    } catch (error) {
+      console.warn("[GitHub Service] Failed to list accessible repositories:", error);
+      return [];
+    }
+  }
+
   async getThreadHistory(
     octokit: Octokit,
     owner: string,
