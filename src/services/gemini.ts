@@ -22,6 +22,8 @@ export interface AIResolution {
   summary?: string;
   branchName?: string;
   files: FileChange[];
+  modelUsed: string;
+  fallbackWarnings?: string[];
 }
 
 export class GeminiService {
@@ -92,6 +94,7 @@ USER INTENT & ACTION TYPE RULES:
 Determine the user's latest intent from the last message in the thread, synthesize the response, and return the structured JSON output.
 `;
 
+    const fallbackWarnings: string[] = [];
     let lastError: any = null;
 
     for (const modelName of fallbackChain) {
@@ -159,6 +162,12 @@ STRICT INVARIANTS:
         const text = result.response.text();
         const parsed: AIResolution = JSON.parse(text);
 
+        // Attach telemetry
+        parsed.modelUsed = modelName;
+        if (fallbackWarnings.length > 0) {
+          parsed.fallbackWarnings = fallbackWarnings;
+        }
+
         // Safety fallback for branch name on CREATE_PR
         if (parsed.actionType === "CREATE_PR" && (!parsed.branchName || !parsed.branchName.startsWith("ai/"))) {
           const sanitizedSlug = params.issueTitle
@@ -172,11 +181,16 @@ STRICT INVARIANTS:
         console.log(`[Gemini Engine] Task successfully processed with actionType: ${parsed.actionType} using model: ${modelName}`);
         return parsed;
       } catch (err: any) {
-        console.warn(`[Gemini Engine] Model ${modelName} failed:`, err?.message || err);
+        const errorSummary = err?.message || String(err);
+        console.warn(`[Gemini Engine] Model ${modelName} failed:`, errorSummary);
+        fallbackWarnings.push(`⚠️ Model \`${modelName}\` gagal (${errorSummary.slice(0, 180)}...)`);
         lastError = err;
       }
     }
 
-    throw lastError || new Error("All Gemini models in fallback chain failed.");
+    const aggregatedError = new Error(
+      `Semua model Gemini dalam fallback chain gagal.\n\nRincian Kegagalan:\n${fallbackWarnings.join("\n")}\n\nTerakhir: ${lastError?.message || lastError}`
+    );
+    throw aggregatedError;
   }
 }

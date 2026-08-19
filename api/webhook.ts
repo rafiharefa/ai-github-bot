@@ -160,7 +160,13 @@ async function processConversationalFlow(params: {
       contextFiles: repoContext.contextFiles,
     });
 
-    console.log(`[Resolution Action] => ${resolution.actionType}`);
+    console.log(`[Resolution Action] => ${resolution.actionType} (Model: ${resolution.modelUsed})`);
+
+    // Build diagnostic notice if fallback occurred
+    const fallbackNotice =
+      resolution.fallbackWarnings && resolution.fallbackWarnings.length > 0
+        ? `\n\n---\n> ℹ️ **Notice:**\n> ${resolution.fallbackWarnings.join("\n> ")}\n> *Task diselesaikan dengan model:* \`${resolution.modelUsed}\``
+        : "";
 
     // ACTION TYPE 1: CHAT_REPLY (Q&A, Discussion, Explanation - NO FILES MUTATED)
     if (resolution.actionType === "CHAT_REPLY") {
@@ -170,7 +176,7 @@ async function processConversationalFlow(params: {
         owner,
         repo,
         issueNumber,
-        resolution.replyMessage || "Diskusi diterima."
+        (resolution.replyMessage || "Diskusi diterima.") + fallbackNotice
       );
       return;
     }
@@ -185,7 +191,7 @@ async function processConversationalFlow(params: {
           owner,
           repo,
           issueNumber,
-          resolution.replyMessage || "Tidak ada perubahan file yang diperlukan."
+          (resolution.replyMessage || "Tidak ada perubahan file yang diperlukan.") + fallbackNotice
         );
         return;
       }
@@ -209,7 +215,8 @@ async function processConversationalFlow(params: {
         owner,
         repo,
         issueNumber,
-        `✅ **Revisi Ditambahkan ke PR!**\n\n${resolution.replyMessage}\n\n**File yang Diperbarui:**\n${filesListMarkdown}\n\n*Commit telah ditambahkan langsung ke branch \`${activeBranchName}\`.*`
+        `✅ **Revisi Ditambahkan ke PR!**\n\n${resolution.replyMessage}\n\n**File yang Diperbarui:**\n${filesListMarkdown}\n\n*Commit telah ditambahkan langsung ke branch \`${activeBranchName}\`.*` +
+          fallbackNotice
       );
       return;
     }
@@ -222,7 +229,7 @@ async function processConversationalFlow(params: {
         owner,
         repo,
         issueNumber,
-        `⚠️ AI menganalisis task tetapi tidak mendeteksi file yang perlu dibuat/diubah.`
+        `⚠️ AI menganalisis task tetapi tidak mendeteksi file yang perlu dibuat/diubah.` + fallbackNotice
       );
       return;
     }
@@ -237,7 +244,7 @@ async function processConversationalFlow(params: {
       commitMessage: `feat(ai): ${resolution.prTitle || issueTitle} (closes #${issueNumber})`,
       files: resolution.files,
       prTitle: `[AI] ${resolution.prTitle || issueTitle}`,
-      prBody: resolution.summary || resolution.replyMessage,
+      prBody: (resolution.summary || resolution.replyMessage) + fallbackNotice,
       issueNumber,
     });
 
@@ -246,7 +253,8 @@ async function processConversationalFlow(params: {
       owner,
       repo,
       issueNumber,
-      `✅ **Implementasi Selesai!**\n\n- **Branch Baru**: \`${prResult.branchName}\`\n- **Pull Request**: [#${prResult.prNumber} (${resolution.prTitle || issueTitle})](${prResult.prUrl})\n\n**Ringkasan:**\n${resolution.summary || resolution.replyMessage}\n\n*Silakan review PR di atas. Anda bisa mengomentari PR tersebut jika ingin meminta revisi tambahan.*`
+      `✅ **Implementasi Selesai!**\n\n- **Branch Baru**: \`${prResult.branchName}\`\n- **Pull Request**: [#${prResult.prNumber} (${resolution.prTitle || issueTitle})](${prResult.prUrl})\n\n**Ringkasan:**\n${resolution.summary || resolution.replyMessage}` +
+        fallbackNotice
     );
   } catch (error: any) {
     console.error("[Conversational Task Error]", error);
@@ -258,7 +266,7 @@ async function processConversationalFlow(params: {
         owner,
         repo,
         issueNumber,
-        `❌ **Gagal menjalankan otomasi AI:**\n\`\`\`\n${error?.message || error}\n\`\`\``
+        `❌ **Gagal menjalankan otomasi AI:**\n\`\`\`\n${error?.message || error}\n\`\`\`\n\n*Silakan periksa kembali pesan error di atas atau coba beberapa saat lagi.*`
       );
     } catch (commentErr) {
       console.error("[Task Error] Failed to post error comment:", commentErr);
