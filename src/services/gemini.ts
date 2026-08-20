@@ -50,9 +50,9 @@ export class GeminiService {
   }): Promise<AIResolution> {
     const fallbackChain = Array.from(
       new Set([
-        this.primaryModelName,
         "gemini-3.1-pro",
         "gemini-3.1-flash",
+        this.primaryModelName,
         "gemini-2.0-pro-exp-02-05",
         "gemini-2.0-flash",
         "gemini-1.5-pro",
