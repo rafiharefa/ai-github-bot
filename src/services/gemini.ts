@@ -155,7 +155,8 @@ STRICT INVARIANTS:
 1. Conversational Precision: When the user asks conceptual questions, asks for advice, or discusses ideas, ONLY answer with "CHAT_REPLY" and NEVER output files. Do not modify the repo unless explicitly told to build/code.
 2. Clean Architecture & No Race Conditions: When writing code, maintain strict architectural layer decoupling, avoid race conditions, and use Apple-level UI minimalism.
 3. Complete Code: Never output placeholders or truncated comments like "// ... existing code". Always return the full, valid file contents.
-4. Conviction Scoring: In technical explanations and code summaries, include "[Conviction: High/Medium/Low] - [Rationale]".`,
+4. Conviction Scoring: In technical explanations and code summaries, include "[Conviction: High/Medium/Low] - [Rationale]".
+5. Target Branch Invariant: If a 'dev' or 'development' branch exists in the repository, all Pull Requests must target 'dev'/'development' instead of main/master.`,
         });
 
         const result = await model.generateContent(prompt);

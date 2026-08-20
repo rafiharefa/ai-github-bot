@@ -78,6 +78,26 @@ export class GitHubService {
     }
   }
 
+  async resolveBaseBranch(
+    octokit: Octokit,
+    owner: string,
+    repo: string
+  ): Promise<string> {
+    const candidateDevBranches = ["dev", "development"];
+    for (const branchName of candidateDevBranches) {
+      try {
+        await octokit.rest.repos.getBranch({ owner, repo, branch: branchName });
+        console.log(`[GitHub Service] Detected active '${branchName}' branch for ${owner}/${repo}. Defaulting base target to '${branchName}'.`);
+        return branchName;
+      } catch {
+        // Branch doesn't exist, continue check
+      }
+    }
+
+    const { data: repoData } = await octokit.rest.repos.get({ owner, repo });
+    return repoData.default_branch;
+  }
+
   async getRepositoryContext(
     octokit: Octokit,
     owner: string,
@@ -89,9 +109,8 @@ export class GitHubService {
     fileList: string[];
     contextFiles: { path: string; content: string }[];
   }> {
-    // 1. Get Repo Details
-    const { data: repoData } = await octokit.rest.repos.get({ owner, repo });
-    const branchToUse = targetBranch || repoData.default_branch;
+    // 1. Resolve Target Branch (Target explicitly provided branch, or dev/development if available, or repo default)
+    const branchToUse = targetBranch || (await this.resolveBaseBranch(octokit, owner, repo));
 
     // 2. Get latest commit SHA on target branch
     const { data: refData } = await octokit.rest.git.getRef({

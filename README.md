@@ -145,6 +145,7 @@ Click the button below to deploy this engine directly to your Vercel account:
 ## 🛡️ Core Engineering Invariants
 
 - **The Isolated Branch Invariant:** The bot is structurally prevented from writing directly to `main` or active default branches.
+- **Dev-First Base Target:** If a `dev` or `development` branch exists in the repository, the bot automatically branches off `dev` and targets all Pull Requests to `dev` instead of `main`/`master`.
 - **Thread History Memory:** Ingests previous comments for continuous multi-turn dialogue.
 - **Zero-Clone Virtual Git Tree:** Manipulates Git Blobs and Trees directly via Octokit in under 800ms.
 - **Clean Architecture & No Race Conditions:** System prompts strictly enforce domain decoupling, concurrency safety, and Apple-level UI minimalism.
