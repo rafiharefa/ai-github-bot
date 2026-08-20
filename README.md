@@ -2,10 +2,10 @@
 
 [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Frafiharefa%2Fai-github-bot&env=GEMINI_API_KEY,GEMINI_MODEL,GITHUB_APP_ID,GITHUB_WEBHOOK_SECRET,BOT_TRIGGER_NAME,GITHUB_PRIVATE_KEY,TELEGRAM_BOT_TOKEN,TELEGRAM_ALLOWED_USER_ID,GITHUB_OWNER&envDescription=Fill%20in%20your%20Google%20Gemini%20API%20Key%2C%20GitHub%20App%2C%20and%20Telegram%20Credentials&project-name=my-ai-github-bot&repo-name=ai-github-bot)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
-[![Powered by Gemini](https://img.shields.io/badge/AI%20Engine-Gemini%203.7%20%2F%202.5-orange.svg)](https://aistudio.google.com/)
+[![Powered by Gemini](https://img.shields.io/badge/AI%20Engine-Gemini%203.1%20Pro%20%2F%203.1%20Flash-orange.svg)](https://aistudio.google.com/)
 [![Telegram Interface](https://img.shields.io/badge/Mobile-Telegram%20Bot%20Ready-2CA5E0.svg)](https://core.telegram.org/bots)
 
-An open-source, serverless AI Software Engineering Agent & Conversational Pair Programmer for GitHub and Telegram. Powered by **Google Gemini (Gemini 3.7 / 2.5 / 2.0)**, **Vercel Serverless Runtime**, and **GitHub Apps API (Octokit)** to synthesize code, enforce Clean Architecture, maintain multi-turn discussion memory, and manage automated Pull Requests 24/7 directly from your browser, GitHub mobile app, or Telegram chat.
+An open-source, serverless AI Software Engineering Agent & Conversational Pair Programmer for GitHub and Telegram. Powered by **Google Gemini (Gemini 3.1 Pro / 3.1 Flash / 2.0 Pro / 2.0 Flash)**, **Vercel Serverless Runtime**, and **GitHub Apps API (Octokit)** to synthesize code, enforce Clean Architecture, maintain multi-turn discussion memory, and manage automated Pull Requests 24/7 directly from your browser, GitHub mobile app, or Telegram chat.
 
 ---
 
@@ -15,12 +15,14 @@ An open-source, serverless AI Software Engineering Agent & Conversational Pair P
    - **Q&A / Discussion Mode (`CHAT_REPLY`):** Ask conceptual or architectural questions without triggering any unwanted Git branches or file changes.
    - **Continuous PR Iteration (`UPDATE_PR`):** Comment on active Pull Requests to request code revisions; the bot appends commits directly to the existing PR branch with **zero duplicate PRs**.
    - **New Feature Development (`CREATE_PR`):** Starts from an Issue, generates code, creates an isolated branch (`ai/...`), and opens a new Pull Request.
-2. **Mobile Telegram Interface:**
+2. **Dev-First Branching Target:**
+   - Automatically detects if `dev` or `development` branch exists, branching off `dev` and targeting all PRs to `dev` before `main`/`master`.
+3. **Mobile Telegram Interface:**
    - Manage, inspect, and code across all your GitHub repositories directly from your Telegram app.
    - Whitelist-protected access to ensure only authorized users can trigger actions.
-3. **Resilient Multi-Model Fallback Ladder:**
-   - Automatically switches `gemini-3.7-flash` $\to$ `gemini-2.5-flash` $\to$ `gemini-2.0-flash` $\to$ `gemini-1.5-pro` on demand spikes (503/429) to guarantee 99.99% uptime.
-4. **100% Free-Tier Architecture:**
+4. **Resilient Multi-Model Fallback Ladder:**
+   - Priority hierarchy: `gemini-3.1-pro` $\to$ `gemini-3.1-flash` $\to$ `gemini-2.0-pro-exp-02-05` $\to$ `gemini-2.0-flash` $\to$ `gemini-1.5-pro`.
+5. **100% Free-Tier Architecture:**
    - Runs on Google AI Studio Free Tier (1,500 requests/day) and Vercel Serverless Compute ($0/month).
 
 ---

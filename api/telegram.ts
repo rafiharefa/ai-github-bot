@@ -222,7 +222,8 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     // 3. Response Dispatch
     if (resolution.actionType === "CHAT_REPLY") {
       // Q&A / Architecture discussion
-      await telegramService.sendMessage(chatId, `💡 **Jawaban AI Architect:**\n\n${resolution.replyMessage}` + fallbackNotice);
+      const chatHeader = `💡 **AI Software Architect** (${resolution.modelUsed})\n\n`;
+      await telegramService.sendMessage(chatId, chatHeader + resolution.replyMessage + fallbackNotice);
     } else {
       // Code Synthesis -> Create Branch & PR
       await telegramService.sendChatAction(chatId, "typing");
@@ -243,7 +244,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         .map((f) => `• \`${f.path}\` (${f.action})`)
         .join("\n");
 
-      const successMsg = `✅ **Pull Request Berhasil Dibuat!**\n\n🔗 **PR:** [${resolution.prTitle || prompt}](${prResult.prUrl})\n🌿 **Branch:** \`${prResult.branchName}\`\n\n**📄 File Dimodifikasi:**\n${fileListMarkdown}\n\n**Ringkasan:**\n${resolution.summary || resolution.replyMessage}${fallbackNotice}`;
+      const successMsg = `✅ **Pull Request Berhasil Dibuat!**\n\n🔗 **PR:** [${resolution.prTitle || prompt}](${prResult.prUrl})\n🌿 **Branch:** \`${prResult.branchName}\`\n🎯 **Base:** \`${repoContext.defaultBranch}\`\n🤖 **Engine:** \`${resolution.modelUsed}\`\n\n**📄 File Dimodifikasi:**\n${fileListMarkdown}\n\n**Ringkasan:**\n${resolution.summary || resolution.replyMessage}${fallbackNotice}`;
 
       await telegramService.sendMessage(chatId, successMsg);
     }

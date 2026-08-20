@@ -272,7 +272,7 @@ async function processConversationalFlow(params: {
       owner,
       repo,
       issueNumber,
-      `✅ **Implementasi Selesai!**\n\n- **Branch Baru**: \`${prResult.branchName}\`\n- **Pull Request**: [#${prResult.prNumber} (${resolution.prTitle || issueTitle})](${prResult.prUrl})\n\n**Ringkasan:**\n${resolution.summary || resolution.replyMessage}` +
+      `✅ **Implementasi Selesai!**\n\n- **Branch Baru**: \`${prResult.branchName}\`\n- **Target Base**: \`${baseBranch}\`\n- **Engine**: \`${resolution.modelUsed}\`\n- **Pull Request**: [#${prResult.prNumber} (${resolution.prTitle || issueTitle})](${prResult.prUrl})\n\n**Ringkasan:**\n${resolution.summary || resolution.replyMessage}` +
         fallbackNotice
     );
   } catch (error: any) {
