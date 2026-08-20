@@ -30,7 +30,7 @@ export class GeminiService {
   private genAI: GoogleGenerativeAI;
   private primaryModelName: string;
 
-  constructor(apiKey: string, modelName = "gemini-3.7-flash") {
+  constructor(apiKey: string, modelName = "gemini-2.0-flash") {
     if (!apiKey) {
       throw new Error("GEMINI_API_KEY is not defined in environment variables.");
     }
@@ -48,15 +48,22 @@ export class GeminiService {
     repoStructure: string[];
     contextFiles: { path: string; content: string }[];
   }): Promise<AIResolution> {
-    const fallbackChain = Array.from(
-      new Set([
-        this.primaryModelName,
-        "gemini-2.5-flash",
-        "gemini-2.0-flash",
-        "gemini-1.5-pro",
-        "gemini-1.5-flash",
-      ])
-    );
+    // Official, high-reliability Google AI Studio models
+    const verifiedModels = [
+      "gemini-2.0-flash",
+      "gemini-2.0-pro-exp-02-05",
+      "gemini-2.0-flash-thinking-exp-01-21",
+      "gemini-1.5-pro",
+      "gemini-1.5-flash",
+    ];
+
+    // Filter out invalid/non-existent experimental slugs
+    const cleanPrimary =
+      this.primaryModelName.includes("3.7") || this.primaryModelName.includes("2.5")
+        ? "gemini-2.0-flash"
+        : this.primaryModelName;
+
+    const fallbackChain = Array.from(new Set([cleanPrimary, ...verifiedModels]));
 
     const threadTranscript = params.threadHistory
       .map((msg) => `[${msg.isBot ? "ASSISTANT (@bot)" : `USER (@${msg.author})`}]:\n${msg.content}`)
@@ -67,16 +74,16 @@ Repository: ${params.repoName}
 Thread Context: ${params.isPullRequest ? `Pull Request (Active Branch: ${params.activeBranchName || "PR"})` : "Issue Thread"}
 Thread Title: ${params.issueTitle}
 
-Initial Problem / Topic:
+Initial Problem / Task:
 ${params.issueBody}
 
 Conversation History (Chronological):
 ${threadTranscript || "(No previous comments)"}
 
 Repository Structure (Key Files):
-${params.repoStructure.slice(0, 120).join("\n")}
+${params.repoStructure.slice(0, 150).join("\n")}
 
-Existing Key File Contents:
+Existing Key File Contents & Architecture Rules:
 ${params.contextFiles
   .map(
     (file) => `
@@ -86,12 +93,19 @@ ${file.content}
   )
   .join("\n")}
 
-USER INTENT & ACTION TYPE RULES:
-1. "CHAT_REPLY": If the user is asking a question, discussing concepts, asking for an explanation, asking why a decision was made, reviewing architecture, or NOT asking to generate code/files -> Set actionType to "CHAT_REPLY", provide a clear, helpful, high-conviction answer in "replyMessage", and keep "files" array EMPTY []. DO NOT create branches or PRs!
-2. "CREATE_PR": If the user is in a regular Issue thread and explicitly requests implementing code, creating files, adding features, or fixing bugs -> Set actionType to "CREATE_PR", provide the complete files in "files", generate a concise conventional "prTitle", write a markdown "summary", and specify a new "branchName" (format "ai/issue-...").
-3. "UPDATE_PR": If the user is commenting inside an active Pull Request thread requesting revisions, fixes, or additional code -> Set actionType to "UPDATE_PR", provide ONLY the updated/new files in "files", write a markdown explanation in "replyMessage" detailing what was updated.
-
-Determine the user's latest intent from the last message in the thread, synthesize the response, and return the structured JSON output.
+CRITICAL ENGINEERING DIRECTIVES:
+1. Intent Classification:
+   - If the user is asking questions, discussing ideas, asking for an explanation, or reviewing architecture -> Return actionType "CHAT_REPLY", provide an in-depth, expert explanation in "replyMessage", and keep "files" array EMPTY [].
+   - If the user explicitly asks to code, build, fix, refactor, or create files:
+     - On a regular Issue: Return actionType "CREATE_PR", generate complete file implementations in "files", generate a clear "prTitle", write a detailed markdown "summary" with conviction score, and suggest a "branchName" (e.g. "ai/issue-...").
+     - On an active PR: Return actionType "UPDATE_PR", return only modified files in "files", and write an update summary in "replyMessage".
+2. Code Synthesis Standards:
+   - Write PRODUCTION-READY, type-safe, bug-free code.
+   - Adhere strictly to Clean Architecture (separation of Domain, Data, Presentation layers).
+   - Follow existing repository conventions, styling, import aliases (e.g. '@/...'), and state management (Riverpod/BLoC/React hooks).
+   - NEVER truncate files with placeholders like "// ... rest of code". Provide 100% complete, compilable file contents.
+3. Conviction Scoring:
+   - Always append a conviction score in your explanation: "[Conviction: High/Medium/Low] - [Rationale]".
 `;
 
     const fallbackWarnings: string[] = [];
@@ -99,7 +113,7 @@ Determine the user's latest intent from the last message in the thread, synthesi
 
     for (const modelName of fallbackChain) {
       try {
-        console.log(`[Gemini Engine] Processing conversational task with model: ${modelName}...`);
+        console.log(`[Gemini Engine] Processing task with official model: ${modelName}...`);
         const model = this.genAI.getGenerativeModel({
           model: modelName,
           generationConfig: {
@@ -111,11 +125,11 @@ Determine the user's latest intent from the last message in the thread, synthesi
                   type: SchemaType.STRING,
                   format: "enum",
                   enum: ["CHAT_REPLY", "CREATE_PR", "UPDATE_PR"],
-                  description: "CHAT_REPLY for conversational Q&A without code, CREATE_PR for new features on issues, UPDATE_PR for revising active PRs",
+                  description: "CHAT_REPLY for Q&A discussion, CREATE_PR for new features on issues, UPDATE_PR for revising active PRs",
                 },
                 replyMessage: {
                   type: SchemaType.STRING,
-                  description: "Markdown formatted response message for chat or PR update summary",
+                  description: "Markdown response message for chat or PR update summary",
                 },
                 prTitle: {
                   type: SchemaType.STRING,
@@ -135,7 +149,7 @@ Determine the user's latest intent from the last message in the thread, synthesi
                     type: SchemaType.OBJECT,
                     properties: {
                       path: { type: SchemaType.STRING, description: "Relative file path from repository root" },
-                      content: { type: SchemaType.STRING, description: "Full complete file content" },
+                      content: { type: SchemaType.STRING, description: "Full complete compilable file content" },
                       action: {
                         type: SchemaType.STRING,
                         format: "enum",
@@ -149,12 +163,13 @@ Determine the user's latest intent from the last message in the thread, synthesi
               required: ["actionType", "replyMessage", "files"],
             },
           },
-          systemInstruction: `You are an elite Autonomous AI Software Architect and Interactive Pair Programmer (like Claude Code).
+          systemInstruction: `You are a Principal Software Architect and elite Pair Programming Intelligence.
+You analyze user codebase repositories, reason through architecture, and synthesize elegant, production-grade code.
 
 STRICT INVARIANTS:
-1. Conversational Precision: When the user asks conceptual questions, asks for advice, or discusses ideas, ONLY answer with "CHAT_REPLY" and NEVER output files. Do not modify the repo unless explicitly told to build/code.
-2. Clean Architecture & No Race Conditions: When writing code, maintain strict architectural layer decoupling, avoid race conditions, and use Apple-level UI minimalism.
-3. Complete Code: Never output placeholders or truncated comments like "// ... existing code". Always return the full, valid file contents.
+1. Pure Chat Precision: When the user asks conceptual questions, asks for advice, or discusses ideas, ONLY answer with "CHAT_REPLY" and NEVER output files.
+2. Clean Architecture & Zero Race Conditions: Maintain strict layer boundaries, eliminate async race conditions, ensure strict type safety, and apply Apple-level minimalist UI.
+3. Complete Implementations: Output full, complete file contents ready for direct git commit without placeholders.
 4. Conviction Scoring: In technical explanations and code summaries, include "[Conviction: High/Medium/Low] - [Rationale]".
 5. Target Branch Invariant: If a 'dev' or 'development' branch exists in the repository, all Pull Requests must target 'dev'/'development' instead of main/master.`,
         });
@@ -184,7 +199,7 @@ STRICT INVARIANTS:
       } catch (err: any) {
         const errorSummary = err?.message || String(err);
         console.warn(`[Gemini Engine] Model ${modelName} failed:`, errorSummary);
-        fallbackWarnings.push(`⚠️ Model \`${modelName}\` gagal (${errorSummary.slice(0, 180)}...)`);
+        fallbackWarnings.push(`Model \`${modelName}\` failed (${errorSummary.slice(0, 160)})`);
         lastError = err;
       }
     }
