@@ -22,19 +22,9 @@ function sanitizeEnv(value: string | undefined): string {
   return clean.trim();
 }
 
-function normalizeModelName(rawModel: string): string {
-  const model = rawModel.trim().toLowerCase();
-  // Map non-existent or invalid API slugs to official Google AI Studio endpoints
-  if (model.includes("3.7") || model.includes("2.5") || model === "default" || !model) {
-    return "gemini-2.0-flash";
-  }
-  return rawModel.trim();
-}
-
 export function getBotConfig(): BotConfig {
   const geminiApiKey = sanitizeEnv(process.env.GEMINI_API_KEY);
-  const rawModel = sanitizeEnv(process.env.GEMINI_MODEL);
-  const geminiModel = normalizeModelName(rawModel);
+  const geminiModel = sanitizeEnv(process.env.GEMINI_MODEL) || "gemini-3.1-pro";
   const appId = sanitizeEnv(process.env.GITHUB_APP_ID);
   let privateKey = process.env.GITHUB_PRIVATE_KEY || "";
   const webhookSecret = sanitizeEnv(process.env.GITHUB_WEBHOOK_SECRET);

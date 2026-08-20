@@ -30,7 +30,7 @@ export class GeminiService {
   private genAI: GoogleGenerativeAI;
   private primaryModelName: string;
 
-  constructor(apiKey: string, modelName = "gemini-2.0-flash") {
+  constructor(apiKey: string, modelName = "gemini-3.1-pro") {
     if (!apiKey) {
       throw new Error("GEMINI_API_KEY is not defined in environment variables.");
     }
@@ -48,22 +48,17 @@ export class GeminiService {
     repoStructure: string[];
     contextFiles: { path: string; content: string }[];
   }): Promise<AIResolution> {
-    // Official, high-reliability Google AI Studio models
-    const verifiedModels = [
-      "gemini-2.0-flash",
-      "gemini-2.0-pro-exp-02-05",
-      "gemini-2.0-flash-thinking-exp-01-21",
-      "gemini-1.5-pro",
-      "gemini-1.5-flash",
-    ];
-
-    // Filter out invalid/non-existent experimental slugs
-    const cleanPrimary =
-      this.primaryModelName.includes("3.7") || this.primaryModelName.includes("2.5")
-        ? "gemini-2.0-flash"
-        : this.primaryModelName;
-
-    const fallbackChain = Array.from(new Set([cleanPrimary, ...verifiedModels]));
+    const fallbackChain = Array.from(
+      new Set([
+        this.primaryModelName,
+        "gemini-3.1-pro",
+        "gemini-3.1-flash",
+        "gemini-2.0-pro-exp-02-05",
+        "gemini-2.0-flash",
+        "gemini-1.5-pro",
+        "gemini-1.5-flash",
+      ])
+    );
 
     const threadTranscript = params.threadHistory
       .map((msg) => `[${msg.isBot ? "ASSISTANT (@bot)" : `USER (@${msg.author})`}]:\n${msg.content}`)
