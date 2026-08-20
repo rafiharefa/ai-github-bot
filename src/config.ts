@@ -22,9 +22,26 @@ function sanitizeEnv(value: string | undefined): string {
   return clean.trim();
 }
 
+function normalizeModelName(rawModel: string): string {
+  const model = rawModel.trim().toLowerCase();
+  // Map outdated or non-existent slugs to current active Google Gemini 3.6 endpoints
+  if (
+    model.includes("2.0") ||
+    model.includes("1.5") ||
+    model.includes("2.5") ||
+    model.includes("3.1") ||
+    model === "default" ||
+    !model
+  ) {
+    return "gemini-3.6-flash";
+  }
+  return rawModel.trim();
+}
+
 export function getBotConfig(): BotConfig {
   const geminiApiKey = sanitizeEnv(process.env.GEMINI_API_KEY);
-  const geminiModel = sanitizeEnv(process.env.GEMINI_MODEL) || "gemini-3.1-pro";
+  const rawModel = sanitizeEnv(process.env.GEMINI_MODEL);
+  const geminiModel = normalizeModelName(rawModel);
   const appId = sanitizeEnv(process.env.GITHUB_APP_ID);
   let privateKey = process.env.GITHUB_PRIVATE_KEY || "";
   const webhookSecret = sanitizeEnv(process.env.GITHUB_WEBHOOK_SECRET);

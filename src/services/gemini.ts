@@ -30,7 +30,7 @@ export class GeminiService {
   private genAI: GoogleGenerativeAI;
   private primaryModelName: string;
 
-  constructor(apiKey: string, modelName = "gemini-3.1-pro") {
+  constructor(apiKey: string, modelName = "gemini-3.6-flash") {
     if (!apiKey) {
       throw new Error("GEMINI_API_KEY is not defined in environment variables.");
     }
@@ -48,15 +48,13 @@ export class GeminiService {
     repoStructure: string[];
     contextFiles: { path: string; content: string }[];
   }): Promise<AIResolution> {
+    // Current official supported Google AI Studio models
     const fallbackChain = Array.from(
       new Set([
-        "gemini-3.1-pro",
-        "gemini-3.1-flash",
         this.primaryModelName,
-        "gemini-2.0-pro-exp-02-05",
-        "gemini-2.0-flash",
-        "gemini-1.5-pro",
-        "gemini-1.5-flash",
+        "gemini-3.6-flash",
+        "gemini-3.6-pro",
+        "gemini-3.7-flash",
       ])
     );
 

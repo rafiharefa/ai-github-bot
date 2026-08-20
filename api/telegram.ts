@@ -93,6 +93,8 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     return;
   }
 
+  let activeChatId: number | string | null = null;
+
   try {
     const rawBody = await readBody(req);
     const update: TelegramUpdate = JSON.parse(rawBody);
@@ -105,6 +107,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
     const message = update.message;
     const chatId = message.chat.id;
+    activeChatId = chatId;
     const fromId = message.from?.id ? message.from.id.toString() : "";
     const text = (message.text || "").trim();
 
@@ -254,19 +257,15 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
   } catch (error: any) {
     console.error("[Telegram Bot Error]", error);
     try {
-      if (config.telegramBotToken) {
-        const rawBody = await readBody(req).catch(() => "");
-        const update = rawBody ? JSON.parse(rawBody) : null;
-        if (update?.message?.chat?.id) {
-          const tg = getTelegramService();
-          await tg.sendMessage(
-            update.message.chat.id,
-            `❌ **Gagal menjalankan tugas:**\n\`\`\`\n${error?.message || error}\n\`\`\``
-          );
-        }
+      if (activeChatId && config.telegramBotToken) {
+        const tg = getTelegramService();
+        await tg.sendMessage(
+          activeChatId,
+          `❌ **Gagal menjalankan otomasi AI:**\n\`\`\`\n${error?.message || error}\n\`\`\`\n\n*Silakan periksa kembali pesan error di atas atau coba beberapa saat lagi.*`
+        );
       }
-    } catch {
-      // Ignore fallback errors
+    } catch (sendErr) {
+      console.error("[Telegram Bot Error] Failed to send error message to Telegram:", sendErr);
     }
     res.statusCode = 200;
     res.end(JSON.stringify({ error: error?.message || error }));
